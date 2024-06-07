@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+error() { printf "%s\n" "$1" >&2; exit 1; }
+
+command -v keytool &> /dev/null || error "Command 'keytool' not found"
+(( $# >= 2 )) || error "Usage: $(basename "$0") <file.der | file.keystore alias> appId"
+
+file=$1
+
+[[ -r $file ]] || error "'$file' doesn't exist or isn't readable"
+if [[ $file = *.keystore ]]; then
+  keystore=$file
+  alias=$2
+  [[ $3 ]] || error "Missing application id argument"
+  app_id=$3
+elif [[ $file = *.der ]]; then
+  trap 'code=$?; rm -rf -- "$tmp_folder"; exit "$code"' EXIT SIGINT SIGQUIT SIGTERM
+  tmp_folder=$(mktemp -d)
+  keystore=$tmp_folder/tmp.keystore
+  alias=temp
+  app_id=$2
+  keytool -importcert -file "$file" -keystore "$keystore" -alias "$alias"
+else
+  error "'$file' needs to be of type *.der or *.keystore"
+fi
+
+keytool -exportcert -keystore "$keystore" -alias "$alias" | xxd -p | tr -d "[:space:]" | printf '%s %s' "$app_id" "$(cat)" | shasum -a 256 | tr -d "[:space:]-" | xxd -r -p | base64 | cut -c1-11
